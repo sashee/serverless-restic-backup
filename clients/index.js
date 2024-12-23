@@ -136,9 +136,12 @@ try {
 		},
 		processStdout: (stdout) => [stdout.split("\n").findLast((line) => isJson(line))].map((line) => JSON.parse(line))[0],
 	});
-	if (process.env.PRUNE) {
-		await runCommand({label: "forget", command: "restic", args: ["forget", "--json", ...process.env.PRUNE.split(" "), "--group-by", ""], env: {AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID, RESTIC_REPOSITORY: process.env.RESTIC_REPOSITORY, AWS_SECRET_ACCESS_KEY: awsSecretAccessKey, RESTIC_PASSWORD: resticPassword}, processStdout: (val) => JSON.parse(val)});
-		await runCommand({label: "prune", command: "restic", args: ["prune"], env: {AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID, RESTIC_REPOSITORY: process.env.RESTIC_REPOSITORY, AWS_SECRET_ACCESS_KEY: awsSecretAccessKey, RESTIC_PASSWORD: resticPassword}});
+	try {
+		await runCommand({label: "forget", command: "restic", args: ["forget", "--json", ...process.env.PRUNE.split(" "), "--group-by", "", "--prune"], env: {AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID, RESTIC_REPOSITORY: process.env.RESTIC_REPOSITORY, AWS_SECRET_ACCESS_KEY: awsSecretAccessKey, RESTIC_PASSWORD: resticPassword}, processStdout: (val) => JSON.parse(val)});
+	}catch(e) {
+		if (process.env.IGNORE_PRUNE_ERRORS !== "true") {
+			throw e;
+		}
 	}
 	await runCommand({label: "check", command: "restic", args: ["check"], env: {AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID, RESTIC_REPOSITORY: process.env.RESTIC_REPOSITORY, AWS_SECRET_ACCESS_KEY: awsSecretAccessKey, RESTIC_PASSWORD: resticPassword}});
 	await runCommand({label: "snapshots", command: "restic", args: ["snapshots", "--json"], env: {AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID, RESTIC_REPOSITORY: process.env.RESTIC_REPOSITORY, AWS_SECRET_ACCESS_KEY: awsSecretAccessKey, RESTIC_PASSWORD: resticPassword}, processStdout: (val) => JSON.parse(val)});
