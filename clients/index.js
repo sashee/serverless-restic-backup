@@ -5,6 +5,7 @@ import path from "node:path";
 import {AwsClient} from "aws4fetch";
 import util from "node:util";
 import childProcess from "node:child_process";
+import {setTimeout} from "node:timers/promises";
 
 const execFile = util.promisify(childProcess.execFile);
 
@@ -47,7 +48,7 @@ const callWithRetry = async (fn, depth = 0) => {
 		if (depth > 7) {
 			throw e;
 		}
-		await wait(2 ** depth * 10);
+		await setTimeout(2 ** depth * 10);
 	
 		return callWithRetry(fn, depth + 1);
 	}
