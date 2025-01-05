@@ -87,7 +87,9 @@ Resources:
   LogGroupForEventsPolicy:
     Type: AWS::Logs::ResourcePolicy
     Properties:
-      PolicyName: EventBridgeToCWLogsPolicy
+      PolicyName: !Sub
+        - "EventBridgeToCWLogsPolicy-${UniqueId}"
+        - UniqueId: !Select [2, !Split ['/', !Ref AWS::StackId]]
       PolicyDocument: !Sub >
         {
           "Version": "2012-10-17",
