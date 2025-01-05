@@ -1,8 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
 Parameters:
-  ManagementAccountId:
-    Type: String
-    Description: "The account ID of the management account"
   NotificationSNSTopicArn:
     Type: String
     Description: "The topic that will be notified when the user is disabled"
@@ -83,101 +80,92 @@ Resources:
                 - 'lambda:InvokeFunctionUrl'
                 Resource: !GetAtt MonitoringLambdaUrl.FunctionArn
 # access denied disabler
-  CloudTrailSNSTopic:
-    Type: AWS::SNS::Topic
-  SNSTopicPolicy:
-    Type: AWS::SNS::TopicPolicy
-    Properties:
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-        - Effect: Allow
-          Principal:
-            AWS: !Ref ManagementAccountId
-          Action: sns:Publish
-          Resource: "*"
-      Topics:
-      - !Ref CloudTrailSNSTopic
-  Queue: 
-    Type: AWS::SQS::Queue
-  QueuePolicy: 
-    Type: AWS::SQS::QueuePolicy
-    Properties: 
-      Queues: 
-        - !Ref Queue
-      PolicyDocument: 
-        Statement: 
-          - Action: "sqs:SendMessage" 
-            Effect: "Allow"
-            Resource: !GetAtt Queue.Arn
-            Principal:  
-              Service: "sns.amazonaws.com"
-            Condition:
-              ArnEquals:
-                "aws:SourceArn": !Ref CloudTrailSNSTopic
-  SQSLogGroup: 
+  SuspiciousEventsLogGroup: 
     Type: AWS::Logs::LogGroup
     Properties: 
       RetentionInDays: 365
-  PipeRole:
-    Type: AWS::IAM::Role
+  LogGroupForEventsPolicy:
+    Type: AWS::Logs::ResourcePolicy
     Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-        - Effect: Allow
-          Principal:
-            Service:
-            - pipes.amazonaws.com
-          Action:
-          - sts:AssumeRole
-          Condition:
-            StringEquals:
-              'aws:SourceArn': !Sub
-                - 'arn:${AWS::Partition}:pipes:${AWS::Region}:${AWS::AccountId}:pipe/${PipeName}'
-                - PipeName: !Select [2, !Split ['/', !Ref AWS::StackId]]
-      Policies:
-        - PolicyName: permissions
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-            - Effect: Allow
-              Action:
-              - 'sqs:ReceiveMessage'
-              - 'sqs:DeleteMessage'
-              - 'sqs:GetQueueAttributes'
-              Resource: !GetAtt Queue.Arn
-            - Effect: Allow
-              Action:
-              - 'logs:PutLogEvents'
-              - 'logs:CreateLogStream'
-              Resource: !Sub "${SQSLogGroup.Arn}:*"
-  SQSToCloudWatchLogs:
-    Type: 'AWS::Pipes::Pipe'
+      PolicyName: EventBridgeToCWLogsPolicy
+      PolicyDocument: !Sub >
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "EventBridgetoCWLogsPolicy",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "delivery.logs.amazonaws.com",
+                  "events.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+              "Resource": [
+                "${SuspiciousEventsLogGroup.Arn}"
+              ]
+            }
+          ]
+        }
+  SuspiciousEventsBus:
+    Type: AWS::Events::EventBus
     Properties:
-      Name: !Select [2, !Split ['/', !Ref AWS::StackId]]
-      RoleArn: !GetAtt PipeRole.Arn
-      Source: !GetAtt Queue.Arn
-      Target: !GetAtt SQSLogGroup.Arn
-      TargetParameters:
-        InputTemplate: "<$.tody.Message>"
-  QueueSubscription:
-    Type: AWS::SNS::Subscription
+      Name: !Sub
+        - "suspicious-events-${UniqueId}"
+        - UniqueId: !Select [2, !Split ['/', !Ref AWS::StackId]]
+  SuspiciousEventsRule:
+    Type: AWS::Events::Rule
     Properties:
-      Endpoint: !GetAtt Queue.Arn
-      Protocol: sqs
-      TopicArn: !Ref CloudTrailSNSTopic
-      FilterPolicyScope: MessageBody
-      FilterPolicy:
-        "$or":
-          - errorCode:
-            - AccessDenied
-          - eventName:
-            - GetCallerIdentity
-        userIdentity:
-          arn:
-            - !GetAtt BackupUser.Arn
-            - !GetAtt MonitoringUser.Arn
+      EventBusName: !GetAtt SuspiciousEventsBus.Arn
+      Name: !Sub
+        - "suspicious-events-${UniqueId}"
+        - UniqueId: !Select [2, !Split ['/', !Ref AWS::StackId]]
+      EventPattern:
+        source:
+          - "cloudtrail"
+        "detail-type":
+          - "suspicious-cloudtrail-record"
+        detail:
+          userIdentity:
+            arn:
+              - !GetAtt BackupUser.Arn
+              - !GetAtt MonitoringUser.Arn
+      Targets: 
+        -
+          Arn: !GetAtt SuspiciousEventsLogGroup.Arn
+          Id: "access-denied-bus"
+  SuspiciousEventAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ComparisonOperator: GreaterThanThreshold
+      EvaluationPeriods: 1
+      Threshold: 0
+      Namespace: "AWS/Events"
+      MetricName: MatchedEvents
+      Statistic: Maximum
+      Dimensions:
+        - Name: RuleName
+          Value: !Sub
+            - "suspicious-events-${UniqueId}"
+            - UniqueId: !Select [2, !Split ['/', !Ref AWS::StackId]]
+        - Name: EventBusName
+          Value: !Ref SuspiciousEventsBus
+      Period: 60
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions:
+      - !GetAtt DisablerLambdaFunction.Arn
+  InvokeDisablerLambdaPermission: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: !GetAtt DisablerLambdaFunction.Arn
+      Action: "lambda:InvokeFunction"
+      Principal: "lambda.alarms.cloudwatch.amazonaws.com"
+      SourceArn: !GetAtt SuspiciousEventAlarm.Arn
   DisablerLambdaLogGroup: 
     Type: AWS::Logs::LogGroup
     Properties: 
@@ -242,7 +230,7 @@ Resources:
 
             const client = new SNSClient({region: process.env.NotificationSNSTopicArn.split(":")[3]});
             await client.send(new PublishCommand({
-              Message: `User disabled. Check logs at https://${process.env.AWS_REGION}.console.aws.amazon.com/cloudwatch/home#logsV2:log-groups/log-group/${process.env.SQSLogGroup.replaceAll("/", "$252F")}/log-events`,
+              Message: `User disabled. Check logs at https://${process.env.AWS_REGION}.console.aws.amazon.com/cloudwatch/home#logsV2:log-groups/log-group/${process.env.SuspiciousEventsLogGroup.replaceAll("/", "$252F")}/log-events`,
               TopicArn: process.env.NotificationSNSTopicArn,
             }));
           };
@@ -254,31 +242,7 @@ Resources:
           BackupUserName: !Ref BackupUser
           MonitoringUserName: !Ref MonitoringUser
           NotificationSNSTopicArn: !Ref NotificationSNSTopicArn
-          SQSLogGroup: !Ref SQSLogGroup
-  AccessDeniedAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      ComparisonOperator: GreaterThanThreshold
-      EvaluationPeriods: 1
-      Threshold: 0
-      Namespace: "AWS/SQS"
-      MetricName: "NumberOfMessagesSent"
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt Queue.QueueName
-      Statistic: Maximum
-      Period: 60
-      TreatMissingData: notBreaching
-      ActionsEnabled: true
-      AlarmActions:
-      - !GetAtt DisablerLambdaFunction.Arn
-  InvokeDisablerLambdaPermission: 
-    Type: AWS::Lambda::Permission
-    Properties: 
-      FunctionName: !GetAtt DisablerLambdaFunction.Arn
-      Action: "lambda:InvokeFunction"
-      Principal: "lambda.alarms.cloudwatch.amazonaws.com"
-      SourceArn: !GetAtt AccessDeniedAlarm.Arn
+          SuspiciousEventsLogGroup: !Ref SuspiciousEventsLogGroup
 # monitoring
   RunIDTable: 
     Type: AWS::DynamoDB::Table
@@ -1034,12 +998,6 @@ Resources:
        Action: lambda:InvokeFunctionUrl
        Principal: '*'
 Outputs:
-  CloudTrailSNSTopic:
-    Value: !GetAtt CloudTrailSNSTopic.TopicArn
-  AccessDeniedLogs:
-    Value: !Sub
-      - "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home#logsV2:log-groups/log-group/${CloudTrailLogsEscaped}/log-events"
-      - CloudTrailLogsEscaped: !Join [ '$252F', !Split [ '/', !Ref SQSLogGroup ] ]
   MonitoringUrl:
     Value: !GetAtt MonitoringLambdaUrl.FunctionUrl
   MonitoringRegion:
@@ -1051,6 +1009,8 @@ Outputs:
   MonitoringUser:
     Value: !Ref MonitoringUser
   ResticRepository:
-    Value: !Sub "s3.dualstack.${AWS::Region}.amazonaws.com/${Bucket}"
+    Value: !Sub "s3:s3.dualstack.${AWS::Region}.amazonaws.com/${Bucket}"
+  SuspiciousEventsBus:
+    Value: !GetAtt SuspiciousEventsBus.Arn
   Version:
     Value: "<<VERSION_PLACEHOLDER>>"

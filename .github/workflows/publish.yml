@@ -80,12 +80,8 @@ jobs:
         export VERSION=$(cat SRCINFO | awk '$1 == "pkgver" {version = substr($0, index($0,"= ")+2)} $1 == "pkgrel" {rel = substr($0, index($0,"= ")+2)} END{print version "-" rel}')
         echo $VERSION
         sed "s/<<VERSION_PLACEHOLDER>>/$VERSION/g" cloudformation.yml > ./target/cloudformation.yml
-        sed "s/<<VERSION_PLACEHOLDER>>/$VERSION/g" mgmt-account.yml > ./target/mgmt-account.yml
     - name: show cloudformation.yml file
       run: cat cloudformation.yml
-      working-directory: ./target
-    - name: show mgmt-account.yml file
-      run: cat mgmt-account.yml
       working-directory: ./target
     - name: Attest
       id: attest-cloudformationyml
@@ -93,31 +89,15 @@ jobs:
       uses: actions/attest-build-provenance@v1
       with:
         subject-path: './target/cloudformation.yml'
-    - name: Attest
-      id: attest-mgmtaccountyml
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: actions/attest-build-provenance@v1
-      with:
-        subject-path: './target/mgmt-account.yml'
     - name: Copy cloudformationyml attestation file
       if: startsWith(github.ref, 'refs/tags/')
       run: cp $BUNDLE cloudformationyml-attestation.jsonl
       env:
         BUNDLE: ${{steps.attest-cloudformationyml.outputs.bundle-path}}
-    - name: Copy mgmgaccountyml attestation file
-      if: startsWith(github.ref, 'refs/tags/')
-      run: cp $BUNDLE mgmtaccountyml-attestation.jsonl
-      env:
-        BUNDLE: ${{steps.attest-mgmtaccountyml.outputs.bundle-path}}
     - uses: actions/upload-artifact@v4
       with:
         name: cloudformationyml
         path: './target/cloudformation.yml'
-        if-no-files-found: error
-    - uses: actions/upload-artifact@v4
-      with:
-        name: mgmtaccountyml
-        path: './target/mgmt-account.yml'
         if-no-files-found: error
     - name: Release
       uses: softprops/action-gh-release@v2
@@ -125,9 +105,7 @@ jobs:
       with:
         files: |
           ./target/cloudformation.yml
-          ./target/mgmt-account.yml
           cloudformationyml-attestation.jsonl
-          mgmtaccountyml-attestation.jsonl
 
   test-arch-package:
     runs-on: ubuntu-latest
