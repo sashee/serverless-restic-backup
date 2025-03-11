@@ -210,7 +210,7 @@ Resources:
   DisablerLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
-      Runtime: nodejs20.x
+      Runtime: nodejs22.x
       Role: !GetAtt DisablerLambdaExecutionRole.Arn
       Handler: index.handler
       ReservedConcurrentExecutions: !If [SetLambdaConcurrency, !Ref LambdaConcurrency, !Ref "AWS::NoValue"]
@@ -353,7 +353,7 @@ Resources:
   MonitoringLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
-      Runtime: nodejs20.x
+      Runtime: nodejs22.x
       Role: !GetAtt MonitoringLambdaExecutionRole.Arn
       Handler: index.handler
       ReservedConcurrentExecutions: !If [SetLambdaConcurrency, !Ref LambdaConcurrency, !Ref "AWS::NoValue"]
@@ -533,14 +533,14 @@ Resources:
   AlertingLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
-      Runtime: nodejs20.x
+      Runtime: nodejs22.x
       Role: !GetAtt AlertingLambdaExecutionRole.Arn
       Handler: index.handler
       ReservedConcurrentExecutions: !If [SetLambdaConcurrency, !Ref LambdaConcurrency, !Ref "AWS::NoValue"]
       Timeout: 30
       Code:
         ZipFile: |
-          const {DynamoDBClient, QueryCommand, PutItem, paginateQuery} = require("@aws-sdk/client-dynamodb");
+          const {DynamoDBClient, QueryCommand, paginateQuery, PutItemCommand} = require("@aws-sdk/client-dynamodb");
           const {SNSClient, PublishCommand} = require("@aws-sdk/client-sns");
 
           exports.handler = async (event) => {
@@ -571,8 +571,6 @@ Resources:
             }));
             const monitorErrors = monitorItems.filter(({items}) => !items.some((item) => item.Success.BOOL));
             if (monitorErrors.length > 0) {
-              console.log(monitorErrors);
-
               const token = crypto.randomUUID();
               await client.send(new PutItemCommand({
                 TableName: process.env.ReportTokensTable,
@@ -580,6 +578,7 @@ Resources:
                   Token: {S: token},
                   StartTime: {N: String(startTime.getTime())},
                   EndTime: {N: String(endTime.getTime())},
+                  Monitors: {SS: monitorErrors.map(({monitor}) => monitor)},
                   ttl: {N: String(Math.round((new Date().getTime() + 365 * 24 * 60 * 60 * 1000) / 1000))},
                 },
                 ConditionExpression: "attribute_not_exists(#pk)",
@@ -591,7 +590,7 @@ Resources:
 
               const snsClient = new SNSClient({region: process.env.NotificationSNSTopicArn.split(":")[3]});
               await snsClient.send(new PublishCommand({
-                Message: `Some monitors did not report success in the past ${process.env.AlertIfMissedEventsForDays} day(s): ${monitorErrors.map(({monitor}) => monitor)}. Check the full report: ${reportingUrl}`,
+                Message: `Some monitors did not report success in the past ${process.env.AlertIfMissedEventsForDays} day(s): ${monitorErrors.map(({monitor}) => monitor).join(", ")}. Check the full report: ${reportingUrl}`,
                 TopicArn: process.env.NotificationSNSTopicArn,
               }));
             }
@@ -700,9 +699,10 @@ Resources:
   ReportingLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
-      Runtime: nodejs20.x
+      Runtime: nodejs22.x
       Role: !GetAtt ReportingLambdaExecutionRole.Arn
       Handler: index.handler
+      MemorySize: 1024
       ReservedConcurrentExecutions: !If [SetLambdaConcurrency, !Ref LambdaConcurrency, !Ref "AWS::NoValue"]
       Timeout: 30
       Code:
@@ -729,8 +729,8 @@ Resources:
             }
           }
 
-          const getEvents = (client) => async (startTime, endTime) => {
-            return Promise.all(process.env.Monitors.split(",").map(async (monitor) => {
+          const getEvents = (client) => async (monitors, startTime, endTime) => {
+            return Promise.all(monitors.map(async (monitor) => {
               const results = [];
               for await (const page of paginateQuery({client}, {
                 TableName: process.env.RunsTable,
@@ -792,22 +792,22 @@ Resources:
                   };
 
                   const rawLogs = {
-                    version: safeRun(() => JSON.parse(version)),
-                    "version-error": safeRun(() => JSON.parse(versionError)),
-                    unlock: safeRun(() => JSON.parse(unlock)),
-                    "unlock-error": safeRun(() => JSON.parse(unlockError)),
-                    backup: safeRun(() => JSON.parse(backup)),
-                    "backup-error": safeRun(() => JSON.parse(backupError)),
-                    forget: safeRun(() => JSON.parse(forget)),
-                    "forget-error": safeRun(() => JSON.parse(forgetError)),
-                    prune: safeRun(() => JSON.parse(prune)),
-                    "prune-error": safeRun(() => JSON.parse(pruneError)),
-                    check: safeRun(() => JSON.parse(check)),
-                    "check-error": safeRun(() => JSON.parse(checkError)),
-                    snapshots: safeRun(() => JSON.parse(snapshots)),
-                    "snapshots-error": safeRun(() => JSON.parse(snapshotsError)),
-                    stats: safeRun(() => JSON.parse(stats)),
-                    "stats-error": safeRun(() => JSON.parse(statsError)),
+                    version: safeRun(() => version === undefined ? undefined : JSON.parse(version)),
+                    "version-error": safeRun(() => versionError === undefined ? undefined : JSON.parse(versionError)),
+                    unlock: safeRun(() => unlock === undefined ? undefined : JSON.parse(unlock)),
+                    "unlock-error": safeRun(() => unlockError === undefined ? undefined : JSON.parse(unlockError)),
+                    backup: safeRun(() => backup === undefined ? undefined : JSON.parse(backup)),
+                    "backup-error": safeRun(() => backupError === undefined ? undefined : JSON.parse(backupError)),
+                    forget: safeRun(() => forget === undefined ? undefined : JSON.parse(forget)),
+                    "forget-error": safeRun(() => forgetError === undefined ? undefined : JSON.parse(forgetError)),
+                    prune: safeRun(() => prune === undefined ? undefined : JSON.parse(prune)),
+                    "prune-error": safeRun(() => pruneError === undefined ? undefined : JSON.parse(pruneError)),
+                    check: safeRun(() => check === undefined ? undefined : JSON.parse(check)),
+                    "check-error": safeRun(() => checkError === undefined ? undefined : JSON.parse(checkError)),
+                    snapshots: safeRun(() => snapshots === undefined ? undefined : JSON.parse(snapshots)),
+                    "snapshots-error": safeRun(() => snapshotsError === undefined ? undefined : JSON.parse(snapshotsError)),
+                    stats: safeRun(() => stats === undefined ? undefined : JSON.parse(stats)),
+                    "stats-error": safeRun(() => statsError === undefined ? undefined : JSON.parse(statsError)),
                   };
                   const anyErrors = versionError || unlockError || backupError || forgetError || pruneError || checkError || snapshotsError || statsError;
                   if (item.Success?.BOOL) {
@@ -856,7 +856,6 @@ Resources:
                 }));
                 results.push(...res);
               }
-              console.log({monitor, results});
               return {monitor, results};
             }));
           }
@@ -869,7 +868,7 @@ Resources:
               const endTime = new Date(event.scheduledTime);
               const startTime = new Date(endTime.getTime() - process.env.ReportInterval * 1000 * 60 * 60 * 24);
               console.log({endTime, startTime});
-              const monitorEvents = await getEvents(client)(startTime, endTime);
+              const monitorEvents = await getEvents(client)(process.env.Monitors.split(","), startTime, endTime);
               const token = crypto.randomUUID();
               await client.send(new PutItemCommand({
                 TableName: process.env.ReportTokensTable,
@@ -907,7 +906,7 @@ Resources:
               }
               const startTime = new Date(Number(item.Item.StartTime.N));
               const endTime = new Date(Number(item.Item.EndTime.N));
-              const monitorEvents = await getEvents(client)(startTime, endTime);
+              const monitorEvents = await getEvents(client)(item.Item.Monitors?.SS ?? process.env.Monitors.split(","), startTime, endTime);
               const encodeResponse = async (body) => {
                 const acceptEncoding = event.headers["accept-encoding"];
                 if (acceptEncoding && acceptEncoding.split(",").some((v) => v.split(";")[0].trim() === "br")) {
