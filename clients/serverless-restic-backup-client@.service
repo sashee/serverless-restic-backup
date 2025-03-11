@@ -8,6 +8,7 @@ LoadCredentialEncrypted=monitoring_aws_secret_access_key:%f/monitoring_aws_secre
 LoadCredentialEncrypted=restic_password:%f/restic_password
 
 Type=oneshot
+CacheDirectory=serverless-restic-backup-client
 
 SystemCallFilter=@system-service
 NoNewPrivileges=true

@@ -1,6 +1,6 @@
 # Maintainer: Tamas Sallai <tamas.sallai@advancedweb.hu>
 pkgname="serverless-restic-backup-client"
-pkgver=0.2.0
+pkgver=0.3.2
 pkgrel=1
 pkgdesc="Restic backup with a serverless monitoring"
 arch=(any)
