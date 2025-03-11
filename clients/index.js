@@ -138,7 +138,20 @@ try {
 		processStdout: (stdout) => [stdout.split("\n").findLast((line) => isJson(line))].map((line) => JSON.parse(line))[0],
 	});
 	try {
-		await runCommand({label: "forget", command: "restic", args: ["forget", "--json", ...process.env.PRUNE.split(" "), "--group-by", "", "--prune"], env: {AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID, RESTIC_REPOSITORY: process.env.RESTIC_REPOSITORY, AWS_SECRET_ACCESS_KEY: awsSecretAccessKey, RESTIC_PASSWORD: resticPassword}, processStdout: (val) => JSON.parse(val)});
+		await runCommand({
+			label: "forget",
+			command: "restic",
+			args: ["forget", "--json", ...process.env.PRUNE.split(" "), "--group-by", "", "--prune"],
+			env: {
+				AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID,
+				RESTIC_REPOSITORY: process.env.RESTIC_REPOSITORY,
+				AWS_SECRET_ACCESS_KEY: awsSecretAccessKey,
+				RESTIC_PASSWORD: resticPassword
+			},
+			// prune does not support JSON yet
+			// https://restic.readthedocs.io/en/stable/075_scripting.html
+			// processStdout: (val) => JSON.parse(val),
+			});
 	}catch(e) {
 		if (process.env.IGNORE_PRUNE_ERRORS !== "true") {
 			throw e;
