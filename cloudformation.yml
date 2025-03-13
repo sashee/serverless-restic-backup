@@ -232,7 +232,7 @@ Resources:
 
             const client = new SNSClient({region: process.env.NotificationSNSTopicArn.split(":")[3]});
             await client.send(new PublishCommand({
-              Message: `User disabled. Check logs at https://${process.env.AWS_REGION}.console.aws.amazon.com/cloudwatch/home#logsV2:log-groups/log-group/${process.env.SuspiciousEventsLogGroup.replaceAll("/", "$252F")}/log-events`,
+              Message: `[${process.env.StackName}] User disabled. Check logs at https://${process.env.AWS_REGION}.console.aws.amazon.com/cloudwatch/home#logsV2:log-groups/log-group/${process.env.SuspiciousEventsLogGroup.replaceAll("/", "$252F")}/log-events`,
               TopicArn: process.env.NotificationSNSTopicArn,
             }));
           };
@@ -245,6 +245,7 @@ Resources:
           MonitoringUserName: !Ref MonitoringUser
           NotificationSNSTopicArn: !Ref NotificationSNSTopicArn
           SuspiciousEventsLogGroup: !Ref SuspiciousEventsLogGroup
+          StackName: !Ref "AWS::StackName"
 # monitoring
   RunIDTable: 
     Type: AWS::DynamoDB::Table
@@ -590,7 +591,7 @@ Resources:
 
               const snsClient = new SNSClient({region: process.env.NotificationSNSTopicArn.split(":")[3]});
               await snsClient.send(new PublishCommand({
-                Message: `Some monitors did not report success in the past ${process.env.AlertIfMissedEventsForDays} day(s): ${monitorErrors.map(({monitor}) => monitor).join(", ")}. Check the full report: ${reportingUrl}`,
+                Message: `[${process.env.StackName}] Some monitors did not report success in the past ${process.env.AlertIfMissedEventsForDays} day(s): ${monitorErrors.map(({monitor}) => monitor).join(", ")}. Check the full report: ${reportingUrl}`,
                 TopicArn: process.env.NotificationSNSTopicArn,
               }));
             }
@@ -605,6 +606,7 @@ Resources:
           AlertIfMissedEventsForDays: !Ref AlertIfMissedEventsForDays
           ReportTokensTable: !GetAtt ReportTokensTable.Arn
           NotificationSNSTopicArn: !Ref NotificationSNSTopicArn
+          StackName: !Ref "AWS::StackName"
   AlertingSchedule:
     Type: AWS::Scheduler::Schedule
     Properties:
@@ -886,7 +888,7 @@ Resources:
               const reportingUrl = `${event.functionUrl}?token=${token}`;
               const snsClient = new SNSClient({region: process.env.NotificationSNSTopicArn.split(":")[3]});
               await snsClient.send(new PublishCommand({
-                Message: `Report ready. Check the full report: ${reportingUrl}`,
+                Message: `[${process.env.StackName}] Report ready. Check the full report: ${reportingUrl}`,
                 TopicArn: process.env.NotificationSNSTopicArn,
               }));
             }else {
@@ -931,7 +933,7 @@ Resources:
                   }
                 }
               };
-              const body = `<html><body><pre>${JSON.stringify(monitorEvents, undefined, 4)}</pre></body></html>`;
+              const body = `<html><body><pre>${JSON.stringify({monitorEvents, stackName: process.env.StackName}, undefined, 4)}</pre></body></html>`;
               const encodedResponse = await encodeResponse(body);
               return {
                 statusCode: 200,
@@ -955,6 +957,7 @@ Resources:
           Monitors: !Ref Monitors
           ReportInterval: !Ref ReportInterval
           NotificationSNSTopicArn: !Ref NotificationSNSTopicArn
+          StackName: !Ref "AWS::StackName"
   ReportingSchedule:
     Type: AWS::Scheduler::Schedule
     Properties:
