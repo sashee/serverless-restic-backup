@@ -306,7 +306,7 @@ Resources:
           KeyType: "HASH"
       BillingMode: PAY_PER_REQUEST
       OnDemandThroughput:
-        MaxReadRequestUnits: 5
+        MaxReadRequestUnits: 50
         MaxWriteRequestUnits: 5
       TimeToLiveSpecification:
         AttributeName: ttl
@@ -704,7 +704,7 @@ Resources:
       Runtime: nodejs22.x
       Role: !GetAtt ReportingLambdaExecutionRole.Arn
       Handler: index.handler
-      MemorySize: 1024
+      MemorySize: 2048
       ReservedConcurrentExecutions: !If [SetLambdaConcurrency, !Ref LambdaConcurrency, !Ref "AWS::NoValue"]
       Timeout: 30
       Code:
